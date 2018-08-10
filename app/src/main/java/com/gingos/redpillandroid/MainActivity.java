@@ -23,6 +23,8 @@ public class MainActivity extends AppCompatActivity {
     TextView txt_scanText;
     Barcode barcode;
 
+    Prescription pre;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -33,6 +35,7 @@ public class MainActivity extends AppCompatActivity {
         // scan button
         btn_scan = findViewById(R.id.btn_scan);
         btn_scan.setOnClickListener(new View.OnClickListener() {
+            // open scanner
             @Override
             public void onClick(View v) {
                 Intent scanIntent = new Intent(MainActivity.this, ScanActivity.class);
@@ -59,8 +62,9 @@ public class MainActivity extends AppCompatActivity {
                         if (!barcode.displayValue.startsWith("FSPILLSEN@"))
                             Toast.makeText(getApplicationContext(), "Sorry, Illegal text format", Toast.LENGTH_LONG).show();
                         else {
-                            txt_scanText.setText(barcode.displayValue);
-                            //ParseTextFromQR(txt_scanText.toString());
+                            // parse JSON into prescription and display on screen
+                            ParseTextFromQR(barcode.displayValue);
+
                         }
                     }
                     else{
@@ -76,5 +80,23 @@ public class MainActivity extends AppCompatActivity {
             default:
                 super.onActivityResult(requestCode,resultCode, data);
         }
+    }
+
+    /*
+     parse raw JSON into prescription parameters
+     input: raw (:string) represents JSON format for pill info
+     will set member variables according to JSON data
+    */
+    private void ParseTextFromQR(String raw) {
+        pre = new Prescription(raw);
+        String details = pre.getDetails();
+        Log.d(TAG_main, "ParseTextFromQR: " + details);
+        txt_scanText.setText(details);
+        /*pillName = pre.getPillName();
+        pillTotal = pre.getTotalPillsGiven();
+        pillMethod = pre.getMethod();
+        pillFrequency = pre.getFrequency();
+        pilllEachTime = pre.getEachTime();
+        pillComments = pre.getComments();*/
     }
 }
