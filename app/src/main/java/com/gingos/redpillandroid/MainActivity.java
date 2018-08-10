@@ -1,6 +1,7 @@
 package com.gingos.redpillandroid;
 
 import android.content.Intent;
+import android.provider.CalendarContract;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
@@ -11,6 +12,8 @@ import android.widget.Toast;
 
 import com.google.android.gms.vision.barcode.Barcode;
 
+import java.util.Calendar;
+
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG_main = "RedPill_MainActivity";
@@ -19,7 +22,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int BARCODE_RESULT_OK_CODE = 101;
     private static final int BARCODE_RESULT_ERROR_CODE = 102;
 
-    Button btn_scan;
+    Button btn_scan, btn_calendar;
     TextView txt_scanText;
     Barcode barcode;
 
@@ -43,8 +46,26 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // to calendar button
+        btn_calendar = findViewById(R.id.btn_calendar);
+        btn_calendar.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (pre.isValid()){
+                    addToCalendar();
+                }
+                else {
+                    Toast.makeText(MainActivity.this, "Prescription Invalid. Please Scan Again.",Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+
         // scan result text
         txt_scanText = findViewById(R.id.txt_scanText);
+
+
+        // INIT MEMBERS
+        pre = new Prescription();
     }
 
     // Listener for all returning activity request results
@@ -64,7 +85,6 @@ public class MainActivity extends AppCompatActivity {
                         else {
                             // parse JSON into prescription and display on screen
                             ParseTextFromQR(barcode.displayValue);
-
                         }
                     }
                     else{
@@ -88,10 +108,24 @@ public class MainActivity extends AppCompatActivity {
      will set member variables according to JSON data
     */
     private void ParseTextFromQR(String raw) {
-        pre = new Prescription(raw);
+        pre.parseJSON(raw);
         String details = pre.getDetails();
         Log.d(TAG_main, "ParseTextFromQR: " + details);
         txt_scanText.setText(details);
+
+    }
+
+    private void addToCalendar() {
+
+        Intent intent = new Intent(Intent.ACTION_INSERT)
+                .setData(CalendarContract.Events.CONTENT_URI)
+                .putExtra(CalendarContract.Events.TITLE, "Take " + pre.getPillName() )
+                .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, calcBeginTimeInMillis())
+                .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, calcEndTimeInMillis())
+                .putExtra(CalendarContract.Events.DESCRIPTION, pre.getPillComments())
+                .putExtra(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY);
+        startActivity(intent);
+
         /*pillName = pre.getPillName();
         pillTotal = pre.getTotalPillsGiven();
         pillMethod = pre.getMethod();
@@ -99,4 +133,43 @@ public class MainActivity extends AppCompatActivity {
         pilllEachTime = pre.getEachTime();
         pillComments = pre.getComments();*/
     }
+
+    private long calcBeginTimeInMillis(){
+        Calendar beginTime = Calendar.getInstance();
+        // start tomorrow morning
+        beginTime.add(Calendar.DAY_OF_YEAR,1);
+        beginTime.set(Calendar.HOUR_OF_DAY, 8);
+        return beginTime.getTimeInMillis();
+    }
+
+    private long calcEndTimeInMillis(){
+        Calendar endTime = Calendar.getInstance();
+        // offset tomorrow morning
+        endTime.add(Calendar.DAY_OF_YEAR,1);
+        endTime.set(Calendar.HOUR_OF_DAY, 8);
+        int frequency, days, dose = pre.getPillEachDose(), total = pre.getTotalPills() ;
+        int[] frequencyArr;
+
+
+        // depending on pill total, pill each dose and pill frequency
+        frequencyArr = pre.getPillFrequencyInt();
+        // non-continuous frequency
+        if (frequencyArr[1] == -1)
+            days = total / ( dose * frequencyArr[0] );
+        // continuous frequency, no range
+        // assume 12h day, we divide 12 by frequency
+        else if (frequencyArr[1] == 0)
+            days = total / ( dose * (12 / frequencyArr[0]) );
+        // continues frequency, with range
+        // assume12h day, we divide 12 by middle point of range
+        // (frequencyArr[1] >= 1)
+        else {
+            int tempsum = frequencyArr[0] + frequencyArr[1];
+            int tempaverage = tempsum / 2;
+            days = total / (dose * (12 / (tempaverage)));
+        }
+        endTime.add(Calendar.DAY_OF_MONTH, days);
+        return endTime.getTimeInMillis();
+    }
+
 }

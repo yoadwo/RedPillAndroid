@@ -3,4 +3,5 @@
     <string name="btn_scan">SCAN</string>
     <string name="txt_scanResult">Prescription Info</string>
     <string name="title_activity_scan">ScanActivity</string>
+    <string name="btn_calendar">Add to calendar</string>
 </resources>

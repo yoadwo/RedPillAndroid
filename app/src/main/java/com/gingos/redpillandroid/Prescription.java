@@ -6,38 +6,54 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.stream.Stream;
+
 public class Prescription {
 
     private static final String TAG_prescription = "RedPill_Prescription";
     private static final String VALIDATION = "FSPILLSEN@";
 
-    private String pillName, pillMethod, pillFrequency, pillComments;
-    private int pillTotal, pillEachDose;
+    private String pillName, pillMethod, pillFrequencyStr, pillComments;
+    private int pillTotal, pillEachDose, pillFrequencyInt;
+    private boolean valid;
 
     JSONObject jsonObj;
 
     // c-tor will set prescription paramters according to JSON
     // protocol is "FSPillsen@{<JSON-string>}"
-    public Prescription(String raw){
+    public Prescription(){
+
+    }
+
+    private void clear(){
+        pillName = pillMethod = pillFrequencyStr = pillComments = "";
+        pillTotal = pillEachDose = 0;
+        valid = false;
+    }
+
+    public void parseJSON(String raw){
         String info = raw.substring(raw.indexOf(VALIDATION) + VALIDATION.length());
         Log.d(TAG_prescription, "Prescription: info:[" + info +"]");
         try{
             jsonObj = new JSONObject(info);
+            // we could add clear() here for the safe side
+            // will not do so yet - i believe all members are always being set
             setPillName();
             setPillEachDose();
             setTotalPills();
             setPillMethod();
             setPillFrequency();
             setPillComments();
+            valid = true;
         } catch (final JSONException e){
             Log.e(TAG_prescription, "Json parsing error: " + e.getMessage());
+            // if parsing fails, we do not want traces from previous parsing to remain
+            // so we clear all class members
+            clear();
         }
-
-
     }
 
-
-
+    // use StringBuilder to get human-readable info on prescription
     public String getDetails(){
         StringBuilder sb = new StringBuilder();
 
@@ -45,7 +61,7 @@ public class Prescription {
         sb.append("Total Pills: \t\t" + getTotalPills() + "\n");
         sb.append("Pills per dose: \t\t" + getPillEachDose() + "\n");
         sb.append("Method: \t\t" + getPillMethod() + "\n");
-        sb.append("Frequency: \t\t" + getPillFrequency() + "\n");
+        sb.append("Frequency: \t\t" + getPillFrequencyString() + "\n");
         sb.append("Comments: \t\t" + getPillComments() + "\n");
 
         return sb.toString();
@@ -115,10 +131,10 @@ public class Prescription {
     // frequency will be "Not Specified" if no such key exists
     private void setPillFrequency() {
         try {
-            pillFrequency =  jsonObj.getString("frequency");
+            pillFrequencyStr =  jsonObj.getString("frequency");
         } catch (JSONException e){
             Log.e(TAG_prescription, "Json SetPillFrequency: " + e.getMessage());
-            pillFrequency =  "Not Specified";
+            pillFrequencyStr =  "Not Specified";
         }
     }
 
@@ -126,13 +142,13 @@ public class Prescription {
     // from codes like "D" or "BID" to "Daily" or "Twice a day"
     // also parses range with regular expressions
     // frequency will be "Illegal format" format does not match pattern
-    public String getPillFrequency() {
+    public String getPillFrequencyString() {
         String frequency;
         String[] number = new String[2];
-        if (pillFrequency.equals("Not Specified"))
-            return pillFrequency;
+        if (pillFrequencyStr.equals("Not Specified"))
+            return pillFrequencyStr;
         else{
-            switch (pillFrequency) {
+            switch (pillFrequencyStr) {
                 case "D":
                     return "Daily";
                 case "BID":
@@ -144,7 +160,7 @@ public class Prescription {
                 case "QHS":
                     return "Bed time";
                 default:
-                    frequency = pillFrequency;
+                    frequency = pillFrequencyStr;
                     break;
             }
             // Q#H(every #)
@@ -163,6 +179,42 @@ public class Prescription {
         }
     }
 
+    public int[] getPillFrequencyInt(){
+        String frequency;
+        String[] number = new String[2];
+
+        switch (pillFrequencyStr) {
+            case "Not Specified":
+            case "illegal frequency format":
+            case "D":
+            case "QHS":
+                return new int[]{1,-1};
+            case "BID":
+                return new int[]{2,-1};
+            case "TID":
+                return new int[]{3,-1};
+            case "QID":
+
+            default:
+                frequency = pillFrequencyStr;
+                break;
+            }
+            // Q#H(every #)
+            String patternExact = "Q(\\d+)H", patternRange = "Q(\\d+\\-\\d+)H";
+            if (frequency.matches(patternExact)){
+                // strip Q, H
+                // [#][0] signifies it is a repetitive frequency
+                return new int[]{Integer.parseInt(frequency.substring(1, frequency.length() - 1) ),0};
+            }
+            // Q#-#H(every #-#)
+            else if (frequency.matches(patternRange)) {
+                number = frequency.substring(1, frequency.length() - 1).split("-");
+                return new int[]{Integer.parseInt(number[0]), Integer.parseInt(number[1])};
+            }
+            else
+                return new int[] {1,-1};
+
+    }
     // parse comments from JSON
     // comments will be "Not Specified" if no such key exists
     private void setPillComments() {
@@ -186,4 +238,7 @@ public class Prescription {
         }
     }
 
+    public boolean isValid() {
+        return valid;
+    }
 }
