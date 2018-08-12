@@ -123,6 +123,7 @@ public class MainActivity extends AppCompatActivity {
                 .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, calcBeginTimeInMillis())
                 .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, calcEndTimeInMillis())
                 .putExtra(CalendarContract.Events.DESCRIPTION, pre.getPillComments())
+                .putExtra(CalendarContract.Events.RRULE, calcRRule())
                 .putExtra(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY);
         startActivity(intent);
 
@@ -134,21 +135,37 @@ public class MainActivity extends AppCompatActivity {
         pillComments = pre.getComments();*/
     }
 
+    // start taking medication the next day, 8:00
     private long calcBeginTimeInMillis(){
         Calendar beginTime = Calendar.getInstance();
         // start tomorrow morning
         beginTime.add(Calendar.DAY_OF_YEAR,1);
         beginTime.set(Calendar.HOUR_OF_DAY, 8);
+        beginTime.set(Calendar.MINUTE,0);
         return beginTime.getTimeInMillis();
     }
 
-    private long calcEndTimeInMillis(){
+    // the medication event itself is only 1 hour long
+    // other repetitions are set on RRule
+    private long calcEndTimeInMillis() {
         Calendar endTime = Calendar.getInstance();
         // offset tomorrow morning
-        endTime.add(Calendar.DAY_OF_YEAR,1);
-        endTime.set(Calendar.HOUR_OF_DAY, 8);
+        endTime.add(Calendar.DAY_OF_YEAR, 1);
+        endTime.set(Calendar.HOUR_OF_DAY, 9);
+        endTime.set(Calendar.MINUTE,0);
+        return endTime.getTimeInMillis();
+
+    }
+
+    private String calcRRule(){
+
         int frequency, days, dose = pre.getPillEachDose(), total = pre.getTotalPills() ;
         int[] frequencyArr;
+        StringBuilder rrule = new StringBuilder();
+
+        //hard-coded, in the future could be changed according to actual research
+        String freq = "DAILY", count;
+        rrule.append("FREQ").append("=").append(freq).append(";");
 
 
         // depending on pill total, pill each dose and pill frequency
@@ -156,20 +173,19 @@ public class MainActivity extends AppCompatActivity {
         // non-continuous frequency
         if (frequencyArr[1] == -1)
             days = total / ( dose * frequencyArr[0] );
-        // continuous frequency, no range
-        // assume 12h day, we divide 12 by frequency
+            // continuous frequency, no range
+            // assume 12h day, we divide 12 by frequency
         else if (frequencyArr[1] == 0)
             days = total / ( dose * (12 / frequencyArr[0]) );
-        // continues frequency, with range
-        // assume12h day, we divide 12 by middle point of range
-        // (frequencyArr[1] >= 1)
+            // continues frequency, with range
+            // assume12h day, we divide 12 by middle point of range
+            // (frequencyArr[1] >= 1)
         else {
-            int tempsum = frequencyArr[0] + frequencyArr[1];
-            int tempaverage = tempsum / 2;
-            days = total / (dose * (12 / (tempaverage)));
+            days = total / (dose * (12 / (((frequencyArr[0] + frequencyArr[1]) / 2))));
         }
-        endTime.add(Calendar.DAY_OF_MONTH, days);
-        return endTime.getTimeInMillis();
+
+        rrule.append("COUNT").append("=").append(days).append(";");
+        return rrule.toString();
     }
 
 }
