@@ -24,7 +24,7 @@ import java.io.IOException;
 public class ScanActivity extends AppCompatActivity {
 
     private static final String TAG_scan = "RedPill_ScanActivity";
-    private static final int CAMERA_PERMISSION_RECQUEST_CODE = 200;
+    private static final int CAMERA_PERMISSION_REQUEST_CODE = 200;
 
     SurfaceView cameraView;
     SurfaceHolder holder;
@@ -64,7 +64,7 @@ public class ScanActivity extends AppCompatActivity {
                         cameraSource.start(cameraView.getHolder());
                     }else{
                         Log.d(TAG_scan, "surfaceCreated: no permission");
-                        ActivityCompat.requestPermissions(ScanActivity.this, new String[] {Manifest.permission.CAMERA}, CAMERA_PERMISSION_RECQUEST_CODE);
+                        ActivityCompat.requestPermissions(ScanActivity.this, new String[] {Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST_CODE);
                     }
 
                 }
@@ -117,12 +117,17 @@ public class ScanActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
-        if (requestCode == CAMERA_PERMISSION_RECQUEST_CODE) {
+        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
             if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
 
                 Toast.makeText(this, "camera permission granted", Toast.LENGTH_LONG).show();
             } else {
                 Toast.makeText(this, "camera permission denied", Toast.LENGTH_LONG).show();
+                Log.d(TAG_scan, "onRequestPermissionsResult: camera permission denied");
+                Intent intent = new Intent();
+                intent.putExtra("permissionError", "No Permission was granted to camera.");
+                setResult(RESULT_CANCELED, intent);
+                finish();
             }
         }
     }

@@ -138,6 +138,9 @@ public class Prescription {
         }
     }
 
+    public String getPillFrequency(){
+        return pillFrequencyStr;
+    }
     // get human readable frequency of each dose from JSON
     // from codes like "D" or "BID" to "Daily" or "Twice a day"
     // also parses range with regular expressions

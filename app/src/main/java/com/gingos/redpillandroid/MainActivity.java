@@ -1,10 +1,22 @@
 package com.gingos.redpillandroid;
 
+import android.Manifest;
+import android.annotation.SuppressLint;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.net.Uri;
+import android.os.Build;
 import android.provider.CalendarContract;
+import android.support.annotation.NonNull;
+import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
+
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
@@ -13,14 +25,18 @@ import android.widget.Toast;
 import com.google.android.gms.vision.barcode.Barcode;
 
 import java.util.Calendar;
+import java.util.TimeZone;
+
+
 
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG_main = "RedPill_MainActivity";
 
     private static final int BARCODE_REQUEST_CODE = 100;
-    private static final int BARCODE_RESULT_OK_CODE = 101;
-    private static final int BARCODE_RESULT_ERROR_CODE = 102;
+    private static final int CALENDAR_WRITE_PERMISSION_REQUEST_CODE = 301;
+    private static final int CALENDAR_READ_PERMISSION_REQUEST_CODE = 302;
+
 
     Button btn_scan, btn_calendar;
     TextView txt_scanText;
@@ -51,11 +67,10 @@ public class MainActivity extends AppCompatActivity {
         btn_calendar.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (pre.isValid()){
+                if (pre.isValid()) {
                     addToCalendar();
-                }
-                else {
-                    Toast.makeText(MainActivity.this, "Prescription Invalid. Please Scan Again.",Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(MainActivity.this, "Prescription Invalid. Please Scan Again.", Toast.LENGTH_LONG).show();
                 }
             }
         });
@@ -74,9 +89,9 @@ public class MainActivity extends AppCompatActivity {
         switch (requestCode) {
             case BARCODE_REQUEST_CODE:
                 Log.d(TAG_main, "onActivityResult: BARCODE_REQUEST");
-                if (resultCode == RESULT_OK){
+                if (resultCode == RESULT_OK) {
                     Log.d(TAG_main, "onActivityResult: BARCODE_RESULT_OK");
-                    if (data !=null){
+                    if (data != null) {
                         barcode = data.getParcelableExtra("barcode");
                         Log.d(TAG_main, "onActivityResult: barcode raw: \n" + barcode.displayValue);
                         // validate Pill protocol
@@ -86,19 +101,27 @@ public class MainActivity extends AppCompatActivity {
                             // parse JSON into prescription and display on screen
                             ParseTextFromQR(barcode.displayValue);
                         }
-                    }
-                    else{
+                    } else {
                         // data == null
                         Toast.makeText(getApplicationContext(), "Sorry, data returned from camera scan is null", Toast.LENGTH_LONG).show();
                         txt_scanText.setText("No barcode found");
                     }
+                } else if (resultCode == RESULT_CANCELED) {
+                    if (data!= null){
+                        String errstr = data.getParcelableExtra("permissionError");
+                        if (errstr.equals("No Permission was granted to camera.")) {
+                            Toast.makeText(getApplicationContext(), errstr, Toast.LENGTH_LONG).show();
+                            Log.d(TAG_main, "onActivityResult: no permission was granted to camera.");
+                        }
+                    }
+                    else {
+                        Toast.makeText(getApplicationContext(), "Sorry, result Code is not OK", Toast.LENGTH_LONG).show();
+                        Log.d(TAG_main, "onActivityResult: unknown error return from scan activity");
+                    }
                 }
-                else if (resultCode == RESULT_CANCELED){
-                    Toast.makeText(getApplicationContext(), "Sorry, result Code is not OK", Toast.LENGTH_LONG).show();
-                }
-            break;
+                break;
             default:
-                super.onActivityResult(requestCode,resultCode, data);
+                super.onActivityResult(requestCode, resultCode, data);
         }
     }
 
@@ -115,24 +138,113 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
+    // add to calendar using intents or URI, depending on user permission
+    // if user chooses not to allow permissions, a more basic event will be created
     private void addToCalendar() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+            Log.d(TAG_main, "addToCalendar: no write permission, requesting now.");
+            ActivityCompat.requestPermissions(MainActivity.this, new String[] {Manifest.permission.WRITE_CALENDAR}, CALENDAR_WRITE_PERMISSION_REQUEST_CODE);
+        }
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+            Log.d(TAG_main, "addToCalendar: no read permission, requesting now.");
+            ActivityCompat.requestPermissions(MainActivity.this, new String[] {Manifest.permission.READ_CALENDAR}, CALENDAR_READ_PERMISSION_REQUEST_CODE);
+        }
+        addToCalendarUsingURI();
+        return;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        if (requestCode == CALENDAR_WRITE_PERMISSION_REQUEST_CODE) {
+            if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.d(TAG_main, "onRequestPermissionsResult: calendar write permission granted");
+                //addToCalendarUsingURI();
+            } else {
+                Log.d(TAG_main, "onRequestPermissionsResult: calendar write permission denied");
+                addToCalendarUsingIntents();
+            }
+        }
+        else if (requestCode == CALENDAR_READ_PERMISSION_REQUEST_CODE){
+            if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.d(TAG_main, "onRequestPermissionsResult: calendar read permission granted");
+                //addToCalendarUsingURI();
+            } else {
+                Log.d(TAG_main, "onRequestPermissionsResult: calendar read permission denied");
+                addToCalendarUsingIntents();
+            }
+        }
+    }
+
+    // add to calendar using CalendarContract & Intents
+    // DOES NOT REQUIRE PERMISSIONS
+    // however, does allow reminder manipulation which is critical for app
+    private void addToCalendarUsingIntents() {
+
+        long beginMilli = calcBeginTimeInMillis();
 
         Intent intent = new Intent(Intent.ACTION_INSERT)
                 .setData(CalendarContract.Events.CONTENT_URI)
-                .putExtra(CalendarContract.Events.TITLE, "Take " + pre.getPillName() )
-                .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, calcBeginTimeInMillis())
-                .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, calcEndTimeInMillis())
+                .putExtra(CalendarContract.Events.TITLE, "Take " + pre.getPillName())
+                .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginMilli)
+                .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, calcEndTimeInMillis(beginMilli))
                 .putExtra(CalendarContract.Events.DESCRIPTION, pre.getPillComments())
                 .putExtra(CalendarContract.Events.RRULE, calcRRule())
                 .putExtra(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY);
         startActivity(intent);
 
-        /*pillName = pre.getPillName();
-        pillTotal = pre.getTotalPillsGiven();
-        pillMethod = pre.getMethod();
-        pillFrequency = pre.getFrequency();
-        pilllEachTime = pre.getEachTime();
-        pillComments = pre.getComments();*/
+    }
+
+    // add to calendar using URI
+    private void addToCalendarUsingURI() {
+        Long eventID = addEvent();
+        if (eventID == -1){
+            Log.d(TAG_main, "addToCalendarUsingURI: uri is null perhaps cr.insert failed");
+            Toast.makeText(getApplicationContext(), "Event add was not successful", Toast.LENGTH_LONG).show();
+            return;
+        }
+        else{
+            // possible that event is added even if cancelled during debug
+            Log.d(TAG_main, "addToCalendarUsingURI: add successful");
+            Toast.makeText(getApplicationContext(), "Event add was successful", Toast.LENGTH_LONG).show();
+            addReminders(eventID);
+        }
+
+
+    }
+
+
+    @SuppressLint("MissingPermission")
+    private long addEvent() {
+        //long calID = getCalenderID();
+        // hard code to 1 (samsung galaxy s6, android v7)
+        long calID = 1;
+        long beginMilli = calcBeginTimeInMillis();
+        //long calID = getCalendarIDCursor();
+
+        ContentResolver cr = getContentResolver();
+        ContentValues values = new ContentValues();
+        values.put(CalendarContract.Events.TITLE, "Take " + pre.getPillName());
+        values.put(CalendarContract.Events.DTSTART, beginMilli);
+        values.put(CalendarContract.Events.DTEND, calcEndTimeInMillis(beginMilli));
+        values.put(CalendarContract.Events.DESCRIPTION, pre.getPillComments());
+        values.put(CalendarContract.Events.CALENDAR_ID, calID);
+        values.put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().getID());
+
+        //suppressed because handled in addCalendar()
+        Uri uri = cr.insert(CalendarContract.Events.CONTENT_URI, values);
+
+        if (uri == null){
+            return -1;
+        } else{
+            // get the event ID that is the last element in the Uri
+            return Long.parseLong(uri.getLastPathSegment());
+        }
+    }
+
+    private void addReminders(Long eventID) {
+        // TODO
     }
 
     // start taking medication the next day, 8:00
@@ -140,31 +252,49 @@ public class MainActivity extends AppCompatActivity {
         Calendar beginTime = Calendar.getInstance();
         // start tomorrow morning
         beginTime.add(Calendar.DAY_OF_YEAR,1);
-        beginTime.set(Calendar.HOUR_OF_DAY, 8);
+        switch (pre.getPillFrequency()){
+            case "BID":
+            case "TID":
+            case "QID":
+                beginTime.set(Calendar.HOUR_OF_DAY, 20);
+                break;
+            case "QHS":
+                beginTime.set(Calendar.HOUR_OF_DAY, 22);
+                break;
+            case "D":
+            default:
+                beginTime.set(Calendar.HOUR_OF_DAY, 8);
+                break;
+        }
+
         beginTime.set(Calendar.MINUTE,0);
         return beginTime.getTimeInMillis();
     }
 
     // the medication event itself is only 1 hour long
     // other repetitions are set on RRule
-    private long calcEndTimeInMillis() {
+    private long calcEndTimeInMillis(long beginMilli) {
         Calendar endTime = Calendar.getInstance();
         // offset tomorrow morning
+        endTime.setTimeInMillis(beginMilli);
+        endTime.add(Calendar.HOUR_OF_DAY, 1);
+        /*
         endTime.add(Calendar.DAY_OF_YEAR, 1);
         endTime.set(Calendar.HOUR_OF_DAY, 9);
         endTime.set(Calendar.MINUTE,0);
+        */
         return endTime.getTimeInMillis();
 
     }
 
     private String calcRRule(){
 
-        int frequency, days, dose = pre.getPillEachDose(), total = pre.getTotalPills() ;
+        int frequency, daysCount, dose = pre.getPillEachDose(), total = pre.getTotalPills() ;
         int[] frequencyArr;
         StringBuilder rrule = new StringBuilder();
 
         //hard-coded, in the future could be changed according to actual research
-        String freq = "DAILY", count;
+        String freq = "DAILY";
         rrule.append("FREQ").append("=").append(freq).append(";");
 
 
@@ -172,20 +302,90 @@ public class MainActivity extends AppCompatActivity {
         frequencyArr = pre.getPillFrequencyInt();
         // non-continuous frequency
         if (frequencyArr[1] == -1)
-            days = total / ( dose * frequencyArr[0] );
+            daysCount = total / ( dose * frequencyArr[0] );
             // continuous frequency, no range
             // assume 12h day, we divide 12 by frequency
         else if (frequencyArr[1] == 0)
-            days = total / ( dose * (12 / frequencyArr[0]) );
+            daysCount = total / ( dose * (12 / frequencyArr[0]) );
             // continues frequency, with range
             // assume12h day, we divide 12 by middle point of range
             // (frequencyArr[1] >= 1)
         else {
-            days = total / (dose * (12 / (((frequencyArr[0] + frequencyArr[1]) / 2))));
+            daysCount = total / (dose * (12 / (((frequencyArr[0] + frequencyArr[1]) / 2))));
         }
 
-        rrule.append("COUNT").append("=").append(days).append(";");
+        rrule.append("COUNT").append("=").append(daysCount).append(";");
         return rrule.toString();
     }
+
+    // on android M (marshmallow, v6) and higher, default is 3
+    private int getCalendarIDBySDK(){
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M){
+            return 3;
+        }else{
+            return 1;
+        }
+    }
+
+    // https://stackoverflow.com/questions/35776265/android-create-calendar-event-always-as-birthday
+    // if getCalendarID fails, use this
+    // cursor to iterate different calendars
+    @SuppressLint("MissingPermission")
+    // suppressed because checked in addToCalendar()
+    private int getCalendarIDCursor(){
+
+        Cursor cursor = null;
+        //ContentResolver contentResolver = context.getContentResolver();
+        ContentResolver contentResolver = getContentResolver();
+        Uri calendars = CalendarContract.Calendars.CONTENT_URI;
+
+        String[] EVENT_PROJECTION = new String[] {
+                CalendarContract.Calendars._ID,                           // 0
+                CalendarContract.Calendars.ACCOUNT_NAME,                  // 1
+                CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,         // 2
+                CalendarContract.Calendars.OWNER_ACCOUNT,                 // 3
+                CalendarContract.Calendars.VISIBLE,                       // 4
+                CalendarContract.Calendars.IS_PRIMARY                     // 5
+        };
+
+        int PROJECTION_ID_INDEX = 0;
+        int PROJECTION_ACCOUNT_NAME_INDEX = 1;
+        int PROJECTION_DISPLAY_NAME_INDEX = 2;
+        int PROJECTION_OWNER_ACCOUNT_INDEX = 3;
+        int PROJECTION_VISIBLE = 4;
+        int PROJECTION_IS_PRIMARY = 5;
+
+        String selectionArgs = CalendarContract.Calendars.VISIBLE + " = 1 AND "
+                + CalendarContract.Calendars.IS_PRIMARY + " = 1";
+        cursor = contentResolver.query(calendars, EVENT_PROJECTION, null, null, null);
+
+        if (cursor.moveToFirst()) {
+            String calAccountName, calDisplName, calOwner;
+            long calId = 0;
+            String visible;
+            String isPrimary;
+
+             while (cursor.moveToNext()){
+                 calId = cursor.getLong(PROJECTION_ID_INDEX);
+                 calAccountName = cursor.getString(PROJECTION_ACCOUNT_NAME_INDEX);
+                 calDisplName = cursor.getString(PROJECTION_DISPLAY_NAME_INDEX);
+                 calOwner = cursor.getString(PROJECTION_OWNER_ACCOUNT_INDEX);
+                 visible = cursor.getString(PROJECTION_VISIBLE);
+                 isPrimary = cursor.getString(PROJECTION_IS_PRIMARY);
+                 // commented out: every calendar but holidays and birthdays are primary, some are visible
+                /*
+                if(visible.equals("1") && isPrimary.equals("1")){
+                    return (int)calId;
+                }
+                */
+                 Log.d(TAG_main,"Calendar Id : " + calId + " Account Name : " + calAccountName + " Display Name : " + calDisplName
+                         + "Owner : " + calOwner + " visible: " + visible + " isPrimary: " + isPrimary);
+             }
+            // now only returns last result! change condition inside while loop
+            return (int)calId;
+        }
+        return 1;
+    }
+
 
 }
