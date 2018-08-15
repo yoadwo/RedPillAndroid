@@ -9,12 +9,13 @@ import org.json.JSONObject;
 import java.util.stream.Stream;
 
 public class Prescription {
+    //TODO: change setter\getter of pillFrequency
 
     private static final String TAG_prescription = "RedPill_Prescription";
     private static final String VALIDATION = "FSPILLSEN@";
 
     private String pillName, pillMethod, pillFrequencyStr, pillComments;
-    private int pillTotal, pillEachDose, pillFrequencyInt;
+    private int pillTotal, pillEachDose, pillFrequencyInt, pillDays;
     private boolean valid;
 
     JSONObject jsonObj;
@@ -27,7 +28,7 @@ public class Prescription {
 
     private void clear(){
         pillName = pillMethod = pillFrequencyStr = pillComments = "";
-        pillTotal = pillEachDose = 0;
+        pillTotal = pillEachDose = pillDays = 0;
         valid = false;
     }
 
@@ -44,6 +45,7 @@ public class Prescription {
             setPillMethod();
             setPillFrequency();
             setPillComments();
+            setPillDays();
             valid = true;
         } catch (final JSONException e){
             Log.e(TAG_prescription, "Json parsing error: " + e.getMessage());
@@ -56,13 +58,14 @@ public class Prescription {
     // use StringBuilder to get human-readable info on prescription
     public String getDetails(){
         StringBuilder sb = new StringBuilder();
-
-        sb.append("Name: \t\t" + getPillName() + "\n");
-        sb.append("Total Pills: \t\t" + getTotalPills() + "\n");
-        sb.append("Pills per dose: \t\t" + getPillEachDose() + "\n");
-        sb.append("Method: \t\t" + getPillMethod() + "\n");
-        sb.append("Frequency: \t\t" + getPillFrequencyString() + "\n");
-        sb.append("Comments: \t\t" + getPillComments() + "\n");
+        sb
+            .append("Name: \t\t" + getPillName() + "\n")
+            .append("Total Pills: \t\t" + getTotalPills() + "\n")
+            .append("Pills per dose: \t\t" + getPillEachDose() + "\n")
+            .append("Method: \t\t" + getPillMethod() + "\n")
+            .append("Frequency: \t\t" + getPillFrequencyString() + "\n")
+            .append("Drug taking duration: \t\t" + getPillDays() + "\n")
+            .append("Comments: \t\t" + getPillComments() + "\n");
 
         return sb.toString();
     }
@@ -239,6 +242,19 @@ public class Prescription {
             // was already set as "Not specified" in its setter
             return pillComments;
         }
+    }
+
+    private void setPillDays() {
+        try {
+            pillDays =  jsonObj.getInt("days");
+        } catch (JSONException e){
+            Log.e(TAG_prescription, "Json SetDays: " + e.getMessage());
+            pillDays =  -1;
+        }
+    }
+
+    public int getPillDays() {
+        return pillDays;
     }
 
     public boolean isValid() {

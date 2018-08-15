@@ -4,7 +4,6 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.ContentResolver;
 import android.content.ContentValues;
-import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -25,8 +24,8 @@ import android.widget.Toast;
 import com.google.android.gms.vision.barcode.Barcode;
 
 import java.util.Calendar;
+import java.util.LinkedList;
 import java.util.TimeZone;
-
 
 
 public class MainActivity extends AppCompatActivity {
@@ -198,25 +197,32 @@ public class MainActivity extends AppCompatActivity {
 
     // add to calendar using URI
     private void addToCalendarUsingURI() {
-        Long eventID = addEvent();
+        Long eventID = createUriEvent();
         if (eventID == -1){
-            Log.d(TAG_main, "addToCalendarUsingURI: uri is null perhaps cr.insert failed");
+            Log.d(TAG_main, "addToCalendarUsingURI: uri is null perhaps cr.insert failed, eventId= " + eventID);
             Toast.makeText(getApplicationContext(), "Event add was not successful", Toast.LENGTH_LONG).show();
             return;
         }
         else{
             // possible that event is added even if cancelled during debug
-            Log.d(TAG_main, "addToCalendarUsingURI: add successful");
-            Toast.makeText(getApplicationContext(), "Event add was successful", Toast.LENGTH_LONG).show();
-            addReminders(eventID);
+            Log.d(TAG_main, "addToCalendarUsingURI: Event add successful, eventId= " + eventID);
+
+            if (createUriReminders(eventID) == -1){
+                Log.d(TAG_main, "addToCalendarUsingURI: could not add reminders, eventId= " + eventID);
+                Toast.makeText(getApplicationContext(), "Event was added (but not all reminders were set)", Toast.LENGTH_LONG).show();
+            } else {
+                Log.d(TAG_main, "addToCalendarUsingURI: Reminders add was successful, eventId= " + eventID);
+                Toast.makeText(getApplicationContext(), "Event add was successful", Toast.LENGTH_LONG).show();
+            }
         }
 
 
     }
 
-
+    // create a single event using URIs
+    // suppressing permission request because requested in a higher function call
     @SuppressLint("MissingPermission")
-    private long addEvent() {
+    private long createUriEvent() {
         //long calID = getCalenderID();
         // hard code to 1 (samsung galaxy s6, android v7)
         long calID = 1;
@@ -243,16 +249,15 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void addReminders(Long eventID) {
-        // TODO
-    }
 
-    // start taking medication the next day, 8:00
+    // start taking medication the next day
+    // medications that are taken more than once a day start by the end of the day
     private long calcBeginTimeInMillis(){
         Calendar beginTime = Calendar.getInstance();
         // start tomorrow morning
         beginTime.add(Calendar.DAY_OF_YEAR,1);
-        switch (pre.getPillFrequency()){
+        String frequency = pre.getPillFrequency();
+        switch (frequency){
             case "BID":
             case "TID":
             case "QID":
@@ -262,11 +267,13 @@ public class MainActivity extends AppCompatActivity {
                 beginTime.set(Calendar.HOUR_OF_DAY, 22);
                 break;
             case "D":
+                beginTime.set(Calendar.HOUR_OF_DAY, 8);
             default:
                 beginTime.set(Calendar.HOUR_OF_DAY, 8);
                 break;
         }
-
+        if (frequency.matches("Q(\\d+)H") || frequency.matches("Q(\\d+\\-\\d+)H"))
+            beginTime.set(Calendar.HOUR_OF_DAY, 20);
         beginTime.set(Calendar.MINUTE,0);
         return beginTime.getTimeInMillis();
     }
@@ -278,13 +285,99 @@ public class MainActivity extends AppCompatActivity {
         // offset tomorrow morning
         endTime.setTimeInMillis(beginMilli);
         endTime.add(Calendar.HOUR_OF_DAY, 1);
-        /*
-        endTime.add(Calendar.DAY_OF_YEAR, 1);
-        endTime.set(Calendar.HOUR_OF_DAY, 9);
-        endTime.set(Calendar.MINUTE,0);
-        */
         return endTime.getTimeInMillis();
 
+    }
+
+    // create reminders to an existing event using URIs, based on its eventID
+    @SuppressLint("MissingPermission")
+    private long createUriReminders(Long eventID) {
+        ContentResolver cr = getContentResolver();
+        // list of ContentValues, later to be inserted as bulk
+        LinkedList<ContentValues> valuesLinkedList = new LinkedList();
+        ContentValues values;
+        int[] frequencyArr = pre.getPillFrequencyInt();
+        // reminders work (programmatically) by minutes, so we convert minutes to hours
+        int H_Minutes = 60;
+        int minutesSkip, minutesBefore = 0;
+
+        if (frequencyArr[1] == -1) {
+            if (frequencyArr[0] == 1) {
+                // "Daily" and "Before bedtime" only need one alert and on time
+                values = new ContentValues();
+                values.put(CalendarContract.Reminders.EVENT_ID, eventID);
+                values.put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT);
+                values.put(CalendarContract.Reminders.MINUTES, minutesBefore);
+                valuesLinkedList.add(values);
+            }
+            else if (frequencyArr [0] > 1){
+                // If need more than once a day, we calculate every how many hours we need the reminder
+                // There is no such thing on android (v8 and before) as hourly recurrence, so we
+                //      skip this by setting hour to late in the day and calculating the reminders backwards
+                // we assume 12h day, so minutesSkip is 12/(2-1) = every 12, 12/(3-1) = every 6 and so on
+                minutesSkip = (12 * H_Minutes ) / (frequencyArr[0] -1 );
+                for (int i=0; i< frequencyArr[0]; i++){
+                    values = new ContentValues();
+                    values.put(CalendarContract.Reminders.EVENT_ID, eventID);
+                    values.put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT);
+                    values.put(CalendarContract.Reminders.MINUTES, minutesBefore);
+
+                    valuesLinkedList.add(values);
+                    minutesBefore+=minutesSkip;
+                }
+            }
+        }
+        else if (frequencyArr[1] == 0){
+            //values = new ContentValues();
+            //values.put(CalendarContract.Reminders.EVENT_ID, eventID);
+            //values.put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT);
+
+            // Again bypass the no-daily frequency limitation
+            // Every (frequency) hours = total of (12/frequency)+1 times
+            minutesSkip = H_Minutes * frequencyArr[0];
+            for (int i=0; i< (12 / frequencyArr[0]) + 1; i++) {
+                values = new ContentValues();
+                values.put(CalendarContract.Reminders.EVENT_ID, eventID);
+                values.put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT);
+                values.put(CalendarContract.Reminders.MINUTES, minutesBefore);
+
+                valuesLinkedList.add(values);
+                minutesBefore += minutesSkip;
+            }
+        }
+        // continues frequency, with range
+        // assume12h day, we divide 12 by middle point of range
+        // (frequencyArr[1] >= 1)
+        else {
+            //daysCount = total / (dose * (12 / (((frequencyArr[0] + frequencyArr[1]) / 2))));
+            int freqAverage = (frequencyArr[0] + frequencyArr[1]) /2;
+            //values = new ContentValues();
+            //values.put(CalendarContract.Reminders.EVENT_ID, eventID);
+            //values.put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT);
+
+            // Again bypass the no-daily frequency limitation
+            // we use mid-range as frequency
+            // Every (frequency) hours = total of (12/frequency) + 1 times
+            minutesSkip = H_Minutes * freqAverage;
+            for (int i=0; i< (12 / freqAverage) + 1; i++) {
+                values = new ContentValues();
+                values.put(CalendarContract.Reminders.EVENT_ID, eventID);
+                values.put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT);
+                values.put(CalendarContract.Reminders.MINUTES, minutesBefore);
+
+                valuesLinkedList.add(values);
+                minutesBefore += minutesSkip;
+            }
+        }
+
+
+        // may not insert all rows
+        //Uri uri = cr.insert(CalendarContract.Reminders.CONTENT_URI, values);
+        int rows = cr.bulkInsert(
+                CalendarContract.Reminders.CONTENT_URI,
+                valuesLinkedList.toArray(new ContentValues[valuesLinkedList.size()]));
+        // return -1 in case not all rows were added
+        return rows == valuesLinkedList.size() ? rows : -1;
     }
 
     private String calcRRule(){
