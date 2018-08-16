@@ -139,6 +139,7 @@ public class MainActivity extends AppCompatActivity {
 
     // add to calendar using intents or URI, depending on user permission
     // if user chooses not to allow permissions, a more basic event will be created
+    // PERMISSION IS CHECKED HERE, SUPPRESSED OTHER FUNCTIONS DOWN THE HIERARCHY
     private void addToCalendar() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
             Log.d(TAG_main, "addToCalendar: no write permission, requesting now.");
@@ -149,8 +150,10 @@ public class MainActivity extends AppCompatActivity {
             ActivityCompat.requestPermissions(MainActivity.this, new String[] {Manifest.permission.READ_CALENDAR}, CALENDAR_READ_PERMISSION_REQUEST_CODE);
         }
         addToCalendarUsingURI();
+        refillRequestUsingURI();
         return;
     }
+
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -163,15 +166,16 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 Log.d(TAG_main, "onRequestPermissionsResult: calendar write permission denied");
                 addToCalendarUsingIntents();
+                refillRequestUsingIntents();
             }
         }
         else if (requestCode == CALENDAR_READ_PERMISSION_REQUEST_CODE){
             if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 Log.d(TAG_main, "onRequestPermissionsResult: calendar read permission granted");
-                //addToCalendarUsingURI();
             } else {
                 Log.d(TAG_main, "onRequestPermissionsResult: calendar read permission denied");
                 addToCalendarUsingIntents();
+                refillRequestUsingIntents();
             }
         }
     }
@@ -181,7 +185,7 @@ public class MainActivity extends AppCompatActivity {
     // however, does allow reminder manipulation which is critical for app
     private void addToCalendarUsingIntents() {
 
-        long beginMilli = calcBeginTimeInMillis();
+        long beginMilli = calcBeginTimeInMillis("create");
 
         Intent intent = new Intent(Intent.ACTION_INSERT)
                 .setData(CalendarContract.Events.CONTENT_URI)
@@ -214,8 +218,6 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(getApplicationContext(), "Event add was successful", Toast.LENGTH_LONG).show();
             }
         }
-
-
     }
 
     // create a single event using URIs
@@ -225,7 +227,7 @@ public class MainActivity extends AppCompatActivity {
         //long calID = getCalenderID();
         // hard code to 1 (samsung galaxy s6, android v7)
         long calID = 1;
-        long beginMilli = calcBeginTimeInMillis();
+        long beginMilli = calcBeginTimeInMillis("create");
         //long calID = getCalendarIDCursor();
 
         ContentResolver cr = getContentResolver();
@@ -251,29 +253,39 @@ public class MainActivity extends AppCompatActivity {
 
     // start taking medication the next day
     // medications that are taken more than once a day start by the end of the day
-    private long calcBeginTimeInMillis(){
+    // TODO: add [optional] argument int amount, so to parameterize the heads up for refill
+    private long calcBeginTimeInMillis(String type){
         Calendar beginTime = Calendar.getInstance();
-        // start tomorrow morning
-        beginTime.add(Calendar.DAY_OF_YEAR,1);
-        String frequency = pre.getPillFrequency();
-        switch (frequency){
-            case "BID":
-            case "TID":
-            case "QID":
+        if (type.equals("create")){
+            // start tomorrow morning
+            beginTime.add(Calendar.DAY_OF_YEAR,1);
+            String frequency = pre.getPillFrequency();
+            switch (frequency){
+                case "BID":
+                case "TID":
+                case "QID":
+                    beginTime.set(Calendar.HOUR_OF_DAY, 20);
+                    break;
+                case "QHS":
+                    beginTime.set(Calendar.HOUR_OF_DAY, 22);
+                    break;
+                case "D":
+                    beginTime.set(Calendar.HOUR_OF_DAY, 8);
+                default:
+                    beginTime.set(Calendar.HOUR_OF_DAY, 8);
+                    break;
+            }
+            if (frequency.matches("Q(\\d+)H") || frequency.matches("Q(\\d+\\-\\d+)H"))
                 beginTime.set(Calendar.HOUR_OF_DAY, 20);
-                break;
-            case "QHS":
-                beginTime.set(Calendar.HOUR_OF_DAY, 22);
-                break;
-            case "D":
-                beginTime.set(Calendar.HOUR_OF_DAY, 8);
-            default:
-                beginTime.set(Calendar.HOUR_OF_DAY, 8);
-                break;
+            beginTime.set(Calendar.MINUTE,0);
         }
-        if (frequency.matches("Q(\\d+)H") || frequency.matches("Q(\\d+\\-\\d+)H"))
-            beginTime.set(Calendar.HOUR_OF_DAY, 20);
-        beginTime.set(Calendar.MINUTE,0);
+        else if (type.equals("refill")){
+            // starting tomorrow, remind 2 days before medication termination date
+            beginTime.add(Calendar.DAY_OF_YEAR,pre.getPillDays() - 2);
+            beginTime.set(Calendar.HOUR_OF_DAY,9);
+            beginTime.set(Calendar.MINUTE,0);
+        }
+
         return beginTime.getTimeInMillis();
     }
 
@@ -286,6 +298,21 @@ public class MainActivity extends AppCompatActivity {
         endTime.add(Calendar.HOUR_OF_DAY, 1);
         return endTime.getTimeInMillis();
 
+    }
+
+    // create frequency rule
+    // currently the "daily" option is hard coded
+    private String calcRRule(){
+
+        StringBuilder rrule = new StringBuilder();
+
+        //hard-coded, in the future could be changed according to actual research
+        String freq = "DAILY";
+        rrule.append("FREQ").append("=").append(freq).append(";");
+
+        int  daysCount = pre.getPillDays();
+        rrule.append("COUNT").append("=").append(daysCount).append(";");
+        return rrule.toString();
     }
 
     // create reminders to an existing event using URIs, based on its eventID
@@ -371,25 +398,11 @@ public class MainActivity extends AppCompatActivity {
 
 
         // may not insert all rows
-        //Uri uri = cr.insert(CalendarContract.Reminders.CONTENT_URI, values);
         int rows = cr.bulkInsert(
                 CalendarContract.Reminders.CONTENT_URI,
                 valuesLinkedList.toArray(new ContentValues[valuesLinkedList.size()]));
         // return -1 in case not all rows were added
         return rows == valuesLinkedList.size() ? rows : -1;
-    }
-
-    private String calcRRule(){
-
-        StringBuilder rrule = new StringBuilder();
-
-        //hard-coded, in the future could be changed according to actual research
-        String freq = "DAILY";
-        rrule.append("FREQ").append("=").append(freq).append(";");
-
-        int  daysCount = pre.getPillDays();
-        rrule.append("COUNT").append("=").append(daysCount).append(";");
-        return rrule.toString();
     }
 
     // on android M (marshmallow, v6) and higher, default is 3
@@ -460,6 +473,103 @@ public class MainActivity extends AppCompatActivity {
         }
         return 1;
     }
+
+    // add refill request calendar using CalendarContract & Intents
+    // DOES NOT REQUIRE PERMISSIONS
+    // starting tomorrow, remind 2 days before medication termination date
+    private void refillRequestUsingIntents(){
+        long beginMilli = calcBeginTimeInMillis("refill");
+
+        Intent intent = new Intent(Intent.ACTION_INSERT)
+                .setData(CalendarContract.Events.CONTENT_URI)
+                .putExtra(CalendarContract.Events.TITLE, "Refill " + pre.getPillName() + " (2 days of meds left)")
+                .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginMilli)
+                .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, calcEndTimeInMillis(beginMilli))
+                .putExtra(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY);
+        startActivity(intent);
+
+    }
+
+    private void refillRequestUsingURI() {
+        Long eventID = refillUriEvent();
+        if (eventID == -1){
+            Log.d(TAG_main, "refillRequestUsingURI: uri is null perhaps cr.insert failed, eventId= " + eventID);
+            Toast.makeText(getApplicationContext(), "Event add was not successful", Toast.LENGTH_LONG).show();
+            return;
+        }
+        else{
+            // possible that event is added even if cancelled during debug
+            Log.d(TAG_main, "refillRequestUsingURI: Event add successful, eventId= " + eventID);
+
+            if (refillUriReminders(eventID) == -1){
+                Log.d(TAG_main, "refillRequestUsingURI: could not add reminders, eventId= " + eventID);
+                Toast.makeText(getApplicationContext(), "Refill request was added (but not all reminders were set)", Toast.LENGTH_LONG).show();
+            } else {
+                Log.d(TAG_main, "refillRequestUsingURI: Refill reminders add was successful, eventId= " + eventID);
+                Toast.makeText(getApplicationContext(), "Refill request add was successful", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    // create a single refill request using URIs
+    // suppressing permission request because requested in a higher call hierarchy
+    // starting tomorrow, remind 2 days before medication termination date
+    @SuppressLint("MissingPermission")
+    private long refillUriEvent(){
+        //long calID = getCalenderID();
+        // hard code to 1 (samsung galaxy s6, android v7)
+        long calID = 1;
+        long beginMilli = calcBeginTimeInMillis("refill");
+        //long calID = getCalendarIDCursor();
+
+        ContentResolver cr = getContentResolver();
+        ContentValues values = new ContentValues();
+        values.put(CalendarContract.Events.TITLE, "Refill " + pre.getPillName() + " (2 days of meds left)");
+        values.put(CalendarContract.Events.DTSTART, beginMilli);
+        values.put(CalendarContract.Events.DTEND, calcEndTimeInMillis(beginMilli));
+        values.put(CalendarContract.Events.CALENDAR_ID, calID);
+        values.put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().getID());
+
+        //suppressed because handled in addCalendar()
+        Uri uri = cr.insert(CalendarContract.Events.CONTENT_URI, values);
+
+        if (uri == null){
+            return -1;
+        } else{
+            // get the event ID that is the last element in the Uri
+            return Long.parseLong(uri.getLastPathSegment());
+        }
+    }
+
+    // create reminders to an existing event using URIs, based on its eventID
+    // reminders are on time (as the refill event itself is 2 days ahead)
+    @SuppressLint("MissingPermission")
+    private long refillUriReminders(Long eventID) {
+        ContentResolver cr = getContentResolver();
+
+        ContentValues values;
+
+        // reminders work (programmatically) by minutes, so we convert minutes to hours
+        int H_Minutes = 60;
+        // "Daily" and "Before bedtime" only need one alert and on time
+        values = new ContentValues();
+        values.put(CalendarContract.Reminders.EVENT_ID, eventID);
+        values.put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT);
+        values.put(CalendarContract.Reminders.MINUTES, 0);
+
+
+        // may not insert all rows
+        Uri uri = cr.insert(CalendarContract.Reminders.CONTENT_URI, values);
+
+        if (uri == null){
+            return -1;
+        } else{
+            // get the event ID that is the last element in the Uri
+            return Long.parseLong(uri.getLastPathSegment());
+        }
+    }
+
+
 
 
 }
