@@ -141,6 +141,7 @@ public class MainActivity extends AppCompatActivity {
     // if user chooses not to allow permissions, a more basic event will be created
     // PERMISSION IS CHECKED HERE, SUPPRESSED OTHER FUNCTIONS DOWN THE HIERARCHY
     private void addToCalendar() {
+        //TODO: check non-integer ranges
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
             Log.d(TAG_main, "addToCalendar: no write permission, requesting now.");
             ActivityCompat.requestPermissions(MainActivity.this, new String[] {Manifest.permission.WRITE_CALENDAR}, CALENDAR_WRITE_PERMISSION_REQUEST_CODE);
@@ -259,7 +260,7 @@ public class MainActivity extends AppCompatActivity {
         if (type.equals("create")){
             // start tomorrow morning
             beginTime.add(Calendar.DAY_OF_YEAR,1);
-            String frequency = pre.getPillFrequency();
+            String frequency = pre.getPillFrequencyRaw();
             switch (frequency){
                 case "BID":
                 case "TID":
@@ -271,12 +272,14 @@ public class MainActivity extends AppCompatActivity {
                     break;
                 case "D":
                     beginTime.set(Calendar.HOUR_OF_DAY, 8);
+                    break;
                 default:
                     beginTime.set(Calendar.HOUR_OF_DAY, 8);
                     break;
             }
             if (frequency.matches("Q(\\d+)H") || frequency.matches("Q(\\d+\\-\\d+)H"))
                 beginTime.set(Calendar.HOUR_OF_DAY, 20);
+
             beginTime.set(Calendar.MINUTE,0);
         }
         else if (type.equals("refill")){

@@ -6,16 +6,14 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.stream.Stream;
-
 public class Prescription {
-    //TODO: change setter\getter of pillFrequency
 
     private static final String TAG_prescription = "RedPill_Prescription";
     private static final String VALIDATION = "FSPILLSEN@";
 
-    private String pillName, pillMethod, pillFrequencyStr, pillComments;
-    private int pillTotal, pillEachDose, pillFrequencyInt, pillDays;
+    private String pillName, pillMethod, pillFrequencyRaw, pillFrequencyStr, pillComments;
+    private int pillTotal, pillEachDose, pillDays;
+    private int[] pillFrequencyInt;
     private boolean valid;
 
     JSONObject jsonObj;
@@ -27,7 +25,7 @@ public class Prescription {
     }
 
     private void clear(){
-        pillName = pillMethod = pillFrequencyStr = pillComments = "";
+        pillName = pillMethod = pillFrequencyRaw = pillComments = "";
         pillTotal = pillEachDose = pillDays = 0;
         valid = false;
     }
@@ -43,7 +41,7 @@ public class Prescription {
             setPillEachDose();
             setTotalPills();
             setPillMethod();
-            setPillFrequency();
+            setPillFrequencyRaw();
             setPillComments();
             setPillDays();
             valid = true;
@@ -132,116 +130,131 @@ public class Prescription {
 
     // parse frequency of each dose from JSON
     // frequency will be "Not Specified" if no such key exists
-    private void setPillFrequency() {
+    private void setPillFrequencyRaw() {
         try {
-            pillFrequencyStr =  jsonObj.getString("frequency");
+            pillFrequencyRaw =  jsonObj.getString("frequency");
+            setPillFrequencyString();
+            setPillFrequencyInt();
         } catch (JSONException e){
             Log.e(TAG_prescription, "Json SetPillFrequency: " + e.getMessage());
-            pillFrequencyStr =  "Not Specified";
+            pillFrequencyRaw =  "Not Specified";
         }
     }
 
-    public String getPillFrequency(){
-        return pillFrequencyStr;
+    public String getPillFrequencyRaw(){
+        return pillFrequencyRaw;
     }
+
+    // convert frequency raw into human readable frequency
+    private void setPillFrequencyString(){
+        String[] number = new String[2];
+        if (pillFrequencyRaw.equals("Not Specified")){
+            pillFrequencyStr = pillFrequencyRaw;
+            return;
+        }
+
+        switch (pillFrequencyRaw) {
+            case "D":
+                pillFrequencyStr = "Daily";
+                return;
+            case "BID":
+                pillFrequencyStr = "Twice a day";
+                return;
+            case "TID":
+                pillFrequencyStr = "Three times a day";
+                return;
+            case "QID":
+                pillFrequencyStr = "Four times a day";
+                return;
+            case "QHS":
+                pillFrequencyStr = "Bed time";
+                return;
+            default:
+                break;
+        }
+        // Q#H(every #)
+        String patternExact = "Q(\\d+)H", patternRange = "Q(\\d+\\-\\d+)H";
+        if (pillFrequencyRaw.matches(patternExact)){
+            // strip Q, H
+            number[0] = pillFrequencyRaw.substring(1, pillFrequencyRaw.length() - 1);
+            pillFrequencyStr = "every " + Integer.parseInt(number[0]) + " hours";
+        }
+        // Q#-#H(every #-#)
+        else if (pillFrequencyRaw.matches(patternRange)){
+            // strip Q,H and then split #-# into {#, #} string array
+            number = pillFrequencyRaw.substring(1, pillFrequencyRaw.length() - 1).split("-");
+            pillFrequencyStr = "every " + number[0] + " to " + number[1] + " hours";
+        }
+        else
+            pillFrequencyStr = "illegal frequency format";
+
+    }
+
     // get human readable frequency of each dose from JSON
     // from codes like "D" or "BID" to "Daily" or "Twice a day"
     // also parses range with regular expressions
     // frequency will be "Illegal format" format does not match pattern
     public String getPillFrequencyString() {
-        String frequency;
-        String[] number = new String[2];
-        if (pillFrequencyStr.equals("Not Specified"))
-            return pillFrequencyStr;
-        else{
-            switch (pillFrequencyStr) {
-                case "D":
-                    return "Daily";
-                case "BID":
-                    return "Twice a day";
-                case "TID":
-                    return "Three times a day";
-                case "QID":
-                    return "Four times a day";
-                case "QHS":
-                    return "Bed time";
-                default:
-                    frequency = pillFrequencyStr;
-                    break;
-            }
-            // Q#H(every #)
-            String patternExact = "Q(\\d+)H", patternRange = "Q(\\d+\\-\\d+)H";
-            if (frequency.matches(patternExact)){
-                // strip Q, H
-                number[0] = frequency.substring(1, frequency.length() - 1);
-                return "every " + Integer.parseInt(number[0]) + " hours";
-            }
-            // Q#-#H(every #-#)
-            else if (frequency.matches(patternRange)){
-                number = frequency.substring(1, frequency.length() - 1).split("-");
-                return "every " + number[0] + " to " + number[1] + " hours";
-            }else
-                return "illegal frequency format";
-        }
+        return pillFrequencyStr;
     }
 
-    public int[] getPillFrequencyInt(){
-        String frequency;
-        String[] number = new String[2];
-
-        switch (pillFrequencyStr) {
+    private void setPillFrequencyInt(){
+        switch (pillFrequencyRaw) {
             case "Not Specified":
             case "illegal frequency format":
             case "D":
             case "QHS":
-                return new int[]{1,-1};
+                pillFrequencyInt = new int[]{1,-1};
+                return;
             case "BID":
-                return new int[]{2,-1};
+                pillFrequencyInt = new int[]{2,-1};
+                return;
             case "TID":
-                return new int[]{3,-1};
+                pillFrequencyInt = new int[]{3,-1};
+                return;
             case "QID":
-
+                pillFrequencyInt = new int[] {4,-1};
+                return;
             default:
-                frequency = pillFrequencyStr;
                 break;
-            }
-            // Q#H(every #)
-            String patternExact = "Q(\\d+)H", patternRange = "Q(\\d+\\-\\d+)H";
-            if (frequency.matches(patternExact)){
-                // strip Q, H
-                // [#][0] signifies it is a repetitive frequency
-                return new int[]{Integer.parseInt(frequency.substring(1, frequency.length() - 1) ),0};
-            }
-            // Q#-#H(every #-#)
-            else if (frequency.matches(patternRange)) {
-                number = frequency.substring(1, frequency.length() - 1).split("-");
-                return new int[]{Integer.parseInt(number[0]), Integer.parseInt(number[1])};
-            }
-            else
-                return new int[] {1,-1};
+        }
+        // Q#H(every #)
+        String patternExact = "Q(\\d+)H", patternRange = "Q(\\d+\\-\\d+)H";
+        if (pillFrequencyRaw.matches(patternExact)){
+            // strip Q, H
+            // [#][0] signifies it is a repetitive frequency
+            pillFrequencyInt = new int[]{Integer.parseInt(pillFrequencyRaw.substring(1, pillFrequencyRaw.length() - 1) ),0};
+        }
+        // Q#-#H(every #-#)
+        else if (pillFrequencyRaw.matches(patternRange)) {
+            String[] number = pillFrequencyRaw.substring(1, pillFrequencyRaw.length() - 1).split("-");
+            pillFrequencyInt = new int[]{Integer.parseInt(number[0]), Integer.parseInt(number[1])};
+        }
+        else
+            // some illegal format
+            pillFrequencyInt = new int[] {1,-1};
+            return;
 
     }
+    public int[] getPillFrequencyInt(){
+        return pillFrequencyInt;
+    }
+
     // parse comments from JSON
     // comments will be "Not Specified" if no such key exists
     private void setPillComments() {
         try {
-            pillComments =  jsonObj.getString("comments");
+            JSONArray comments = jsonObj.getJSONArray("comments");
+            pillComments = comments.toString().replaceAll("(\\[|\\]|\")", "").replaceAll(",", ", ");
         } catch (JSONException e){
             Log.e(TAG_prescription, "Json SetComments: " + e.getMessage());
             pillComments =  "Not Specified";
         }
     }
 
+    // Comments node is JSON array
     public String getPillComments(){
-        // Comments node is JSON array
-        try {
-            JSONArray comments = jsonObj.getJSONArray("comments");
-            return comments.toString().replaceAll("(\\[|\\]|\")", "");
-        } catch (JSONException e) {
-            Log.e(TAG_prescription, "getPillComments: " + e.getMessage() );
-            // was already set as "Not specified" in its setter
-            return pillComments;
-        }
+        return pillComments;
     }
 
     private void setPillDays() {
