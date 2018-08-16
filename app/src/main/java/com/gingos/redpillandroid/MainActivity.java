@@ -357,10 +357,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         else if (frequencyArr[1] == 0){
-            //values = new ContentValues();
-            //values.put(CalendarContract.Reminders.EVENT_ID, eventID);
-            //values.put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT);
-
             // Again bypass the no-daily frequency limitation
             // Every (frequency) hours = total of (12/frequency)+1 times
             minutesSkip = H_Minutes * frequencyArr[0];
@@ -380,9 +376,6 @@ public class MainActivity extends AppCompatActivity {
         else {
             //daysCount = total / (dose * (12 / (((frequencyArr[0] + frequencyArr[1]) / 2))));
             int freqAverage = (frequencyArr[0] + frequencyArr[1]) /2;
-            //values = new ContentValues();
-            //values.put(CalendarContract.Reminders.EVENT_ID, eventID);
-            //values.put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT);
 
             // Again bypass the no-daily frequency limitation
             // we use mid-range as frequency
