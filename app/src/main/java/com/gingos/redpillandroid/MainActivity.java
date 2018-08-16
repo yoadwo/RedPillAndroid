@@ -192,7 +192,6 @@ public class MainActivity extends AppCompatActivity {
                 .putExtra(CalendarContract.Events.RRULE, calcRRule())
                 .putExtra(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY);
         startActivity(intent);
-
     }
 
     // add to calendar using URI
@@ -237,6 +236,7 @@ public class MainActivity extends AppCompatActivity {
         values.put(CalendarContract.Events.DESCRIPTION, pre.getPillComments());
         values.put(CalendarContract.Events.CALENDAR_ID, calID);
         values.put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().getID());
+        values.put(CalendarContract.Events.RRULE, calcRRule());
 
         //suppressed because handled in addCalendar()
         Uri uri = cr.insert(CalendarContract.Events.CONTENT_URI, values);
@@ -248,7 +248,6 @@ public class MainActivity extends AppCompatActivity {
             return Long.parseLong(uri.getLastPathSegment());
         }
     }
-
 
     // start taking medication the next day
     // medications that are taken more than once a day start by the end of the day
@@ -382,31 +381,13 @@ public class MainActivity extends AppCompatActivity {
 
     private String calcRRule(){
 
-        int frequency, daysCount, dose = pre.getPillEachDose(), total = pre.getTotalPills() ;
-        int[] frequencyArr;
         StringBuilder rrule = new StringBuilder();
 
         //hard-coded, in the future could be changed according to actual research
         String freq = "DAILY";
         rrule.append("FREQ").append("=").append(freq).append(";");
 
-
-        // depending on pill total, pill each dose and pill frequency
-        frequencyArr = pre.getPillFrequencyInt();
-        // non-continuous frequency
-        if (frequencyArr[1] == -1)
-            daysCount = total / ( dose * frequencyArr[0] );
-            // continuous frequency, no range
-            // assume 12h day, we divide 12 by frequency
-        else if (frequencyArr[1] == 0)
-            daysCount = total / ( dose * (12 / frequencyArr[0]) );
-            // continues frequency, with range
-            // assume12h day, we divide 12 by middle point of range
-            // (frequencyArr[1] >= 1)
-        else {
-            daysCount = total / (dose * (12 / (((frequencyArr[0] + frequencyArr[1]) / 2))));
-        }
-
+        int  daysCount = pre.getPillDays();
         rrule.append("COUNT").append("=").append(daysCount).append(";");
         return rrule.toString();
     }
