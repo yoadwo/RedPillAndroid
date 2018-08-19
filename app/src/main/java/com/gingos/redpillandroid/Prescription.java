@@ -244,8 +244,9 @@ public class Prescription {
     // comments will be "Not Specified" if no such key exists
     private void setPillComments() {
         try {
-            JSONArray comments = jsonObj.getJSONArray("comments");
-            pillComments = comments.toString().replaceAll("(\\[|\\]|\")", "").replaceAll(",", ", ");
+            //JSONArray comments = jsonObj.getJSONArray("comments");
+            //pillComments = comments.toString().replaceAll("(\\[|\\]|\")", "").replaceAll(",", ", ");
+            pillComments = jsonObj.getString("comments");
         } catch (JSONException e){
             Log.e(TAG_prescription, "Json SetComments: " + e.getMessage());
             pillComments =  "Not Specified";
